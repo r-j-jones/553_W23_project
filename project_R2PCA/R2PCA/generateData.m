@@ -1,0 +1,174 @@
+function [ M, L, S, W ] = generateData( params )
+
+% close all; warning ('off','all'); clc;
+rand('state',sum(100*clock));
+
+if ~isdeployed
+    addpath('/Users/robertjones/Desktop/W23/553/project/R2PCA/noiseless/utils');
+end
+
+% ===========================  ============================
+%% Set parameters
+
+% Input:
+%   
+%   d,N = size of the matrix is d x N
+%   r = rank of low-rank component.
+%   p = Probability of nonzero entry in sparse component
+%   v = variance of the sparse entries
+%   mu = coherence parameter of low-rank component
+%   T = number of trials
+%   k = size of expanded block/window for noisy-case
+%   NoiseLvl = noise level of AGWN
+
+d = 100;
+N = d;
+r = 5;
+k = 3*r;
+[params]=concat_params2struct( 100, 'N',N,'r',r,'k',k );
+
+p = CreateParser;
+
+d = 100;            % Size of the matrix = d x N
+N = d;
+r = 5;              % rank of low-rank component
+p = 0.05;           % probability of sparse outliers
+mu = 5;             % Coherence: value in [1,d/r]
+v = 10;             % variance of the sparse entries %v=10 used in paper
+T = 1;              % Number of trials
+k = 10;             % Size of block in noisy-case (k>r)
+sigma_n = 1e-3;     % Noise level (standard deviation (sigma) of Gauss dist)
+
+verbose = 1;        % display messages, if debugging
+
+
+% fprintf('d=%d\tN=%d\tr=%g\tp=%g\nmu=%g\tv=%g\tk=%g\tsigman=%g\n', d,N,r,p,mu,v,k,sigma_n);
+fprintf('\n---- ---- ---- --------------- ---- ---- ---- \n')
+fprintf('---- ---- ---- RPCA PARAMETERS ---- ---- ---- \n')
+fprintf('-Matrix size (d x N):        \t d = %d, N = %d\n',d,N);
+fprintf('-Low-rank dim:               \t r = %d \n',r);
+fprintf('-Prob of sp outliers:        \t p = %g \n',p);
+fprintf('-Var. or sparse outliers:    \t v = %g \n',v);
+fprintf('-Coherence:                  \t %s = %g \n',char(956),mu);
+fprintf('-R2PCA noisy search wind sz: \t k = %d \n',k);
+fprintf('-Gauss. noise std dev:       \t %s_noise = %g \n',char(963),sigma_n);
+fprintf('-# of trials:                \t T = %d \n',T);
+fprintf('-Verbose:                    \t verbose = %d \n',verbose);
+fprintf('---- ---- ---- --------------- ---- ---- ---- \n\n')
+
+
+% ===========================  ============================
+%% Generate synthetic/simulated data
+fprintf('\n======== GENERATING SIMULATED DATA ==========\n');
+
+
+s = ceil(p*N);               %number of corrupted entries per row
+fprintf(' -# of corrupted entries per row = %g \n',s);
+
+if s > (N-r)/(2*(r+1))
+    warning('The # of corrupted entries in S is large (S not sparse enough)');
+end
+
+% ===================== GENERATE U MATRIX ============================
+% ======= Low-rank basis within range of coherence parameter mu =======
+fprintf(' -Generating low-rank subspace U with coherence ~%s=%g \n',char(956),mu);
+U = basisWcoherence(d,r,mu-.5);
+while coherence(U)>mu+.5
+    U = basisWcoherence(d,r,mu-.5);
+end
+U = orth(U);
+mu = coherence(U);
+fprintf('\t -Final coherence value: %s = %g \n',char(956),mu);
+
+% ===================== GENERATE L MATRIX (& THETA) ============================
+fprintf(' -Generating low-rank matrix L\n');
+fprintf('\t L = U*%s \n',char(920));
+fprintf('\t %s = random coeffs of low-rank component\n',char(920));
+Theta = randn(r,N);     % Coefficients of low-rank component
+L = U*Theta;            % Low-rank component
+
+% ===================== GENERATE S MATRIX ============================
+% ========== Sparse matrix with s corrupted entries per row ==========
+fprintf(' -Generating sparse outlier matrix S\n');
+fprintf(' \t with %g corrupted entries per row \n',s);
+S = zeros(d,N);
+for i = 1:d
+    S(i,randsample(N,s)) = v*randn(s,1);
+end
+% Verify that each column has at least r+1 uncorrupted entries
+for j=1:N
+    idx = find(S(:,j));
+    nonZeros = length(idx);
+    if nonZeros>d-r-1
+        newZeros = nonZeros-(d-r-1);
+        S(idx(randsample(nonZeros,newZeros)),j) = 0;
+    end
+end
+
+% ===================== GENERATE W (NOISE) MATRIX ============================
+% =============== Construct synthetic additive noise matrix ==========
+fprintf(' -Generating Gauss noise matrix W\n');
+fprintf(' \t with %s_noise = %g \n',char(963),sigma_n);
+
+% W = sigma_n^2 * randn(d,N);    % as done when generating S above
+W = normrnd(0,sigma_n^2,[d,N]);
+% W1 = sigma_n^2 * randn(d,N); 
+% W2 = normrnd(0,sigma_n,[d,N]);
+
+% ===================== GENERATE M (DATA/OBS) MATRIX ============================
+% ======================= Mixed matrix =======================
+fprintf(' -Creating observation data matrix M \n');
+fprintf(' \t via M = L + S + W \n');
+M = L + S + W;
+
+
+end
+
+
+function [ p ] = CreateParser
+
+    p = inputParser;
+    p.KeepUnmatched = true;
+    p.CaseSensitive = true;
+    p.FunctionName = 'generateData';
+
+%     default_d = 100;            % Size of the matrix = d x N
+    default_N = -1;              % rank of low-rank component
+    default_r = 5;              % rank of low-rank component
+    default_p = 0.05;           % probability of sparse outliers
+    default_mu = 5;             % Coherence: value in [1,d/r]
+    default_v = 10;             % variance of the sparse entries %v=10 used in paper
+    default_T = 1;              % Number of trials
+    default_k = 10;             % Size of block in noisy-case (k>r)
+    default_sigma_n = 1e-3;     % Noise level (standard deviation (sigma) of Gauss dist)
+    default_verbose = 1;        % display messages, if debugging
+
+    validfun = @(x) isnumeric(x) && isscalar(x) && (x > 0);
+    addRequired(p,'d',validfun);
+    validfunN = @(x) isnumeric(x) && isscalar(x);
+    addParameter(p,'N',default_N,validfunN);
+    addParameter(p,'r',default_r, validfun);
+    addParameter(p,'T',default_T, validfun);
+    addParameter(p,'k',default_k, validfun);
+
+    validfun = @(x) isnumeric(x) && isscalar(x) && (x > 0);
+    addParameter(p,'p',default_p, validfun);
+    addParameter(p,'mu',default_mu, validfun);
+    addParameter(p,'v',default_v, validfun);
+    addParameter(p,'sigma_n',default_sigma_n, validfun);
+
+    validfun = @(x) (isnumeric(x) && isscalar(x) && (x>0) ) || @islogical ;
+    addParameter(p,'verbose',default_verbose, validfun);
+
+
+end
+
+function [params]=concat_params2struct( d, varargin )
+params.d = d;
+while ~isempty(varargin)
+    pname = varargin{1};
+    pval = varargin{2};
+    params.(pname) = pval;
+    varargin(1:2)=[];
+end
+end
